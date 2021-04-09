@@ -7,9 +7,12 @@ from scipy import stats as st
 from scipy import signal as sg
 import seaborn as sns
 import tensorflow as tf
+import os
+
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 # Setup
-mpl.rcParams['figure.figsize'] = (8, 6)
+mpl.rcParams['figure.figsize'] = (14, 8)
 mpl.rcParams['axes.grid'] = True
 
 np.random.seed(10)
@@ -97,7 +100,7 @@ input_width     = 65 * n_hours_in # 65 entries ~ 1 hour - There is a variable sa
 label_width     = 65 * n_hours_out # Predict 1 hour
 offset_width    = 1 # 1 as default
 
-target_label = [4, 5, 8, 9, 18]
+label_target = {4: 'pH sump B', 5: 'pH sump A', 8: '% oxygen B', 9: '% oxygen A', 18: 'C02'}
 # Our target variables are:
 # 4     = pH sump B
 # 5     = pH sump A
@@ -112,33 +115,70 @@ target_label = [4, 5, 8, 9, 18]
 # * sensors are not online yet
 
 # Create input and label dataframe
-def f_window_gen(df, target_label, input_width, label_width, offset_width):
+def f_window_gen(df, label_target, input_width, label_width, offset_width):
     
     time_range = df.index
     data = []
     label = []
 
+    data_time = []
+    label_time = []
+
     for i in range(len(time_range) - (input_width + offset_width + label_width)):
         m_data = df.loc[time_range[i]:time_range[input_width + i]].to_numpy()
         data.append(m_data.flatten('C'))
+        data_time.append(time_range[i:input_width + i])
 
-        m_label = df[target_label].loc[time_range[input_width + offset_width + i: input_width + offset_width + label_width + i]].to_numpy()
+        m_label = df[label_target].loc[time_range[input_width + offset_width + i: input_width + offset_width + label_width + i]].to_numpy()
         label.append(m_label.flatten('C'))
+        label_time.append(time_range[input_width + offset_width + i: input_width + offset_width + label_width + i])
 
-    return data, label
+    return np.array(data), np.array(label), data_time, label_time
 
-train_data, train_label = f_window_gen(norm_train_df, target_label, input_width, label_width, offset_width)
-val_data, val_label = f_window_gen(norm_val_df, target_label, input_width, label_width, offset_width)
-test_data, test_label = f_window_gen(norm_test_df, target_label, input_width, label_width, offset_width)
+
+train_data, train_label, train_data_time, train_label_time = f_window_gen(norm_train_df, label_target, input_width, label_width, offset_width)
+val_data, val_label, val_data_time, val_label_time = f_window_gen(norm_val_df, label_target, input_width, label_width, offset_width)
+test_data, test_label, test_data_time, test_label_time = f_window_gen(norm_test_df, label_target, input_width, label_width, offset_width)
+
+### Plotting - Normalized values
+def plot_results(label_target, label_time, label, results):
+    n_label = np.int(len(target_label))
+    n_time = np.int(label_time.shape[0])
+
+    m_label = label.reshape(n_time, n_label)
+    m_results = results.reshape(n_time, n_label)
+
+    sensor_tag = list(label_target.values())
+
+    fig, ax = plt.subplots(n_label, sharex = 'all')
+
+    for i in range(n_label):
+        ax[i].plot(label_time, m_label[:, i], color = 'blue', label = 'Real')
+        ax[i].plot(label_time, m_results[:, i], color = 'orange', label = 'Prediction')
+        ax[i].set_ylabel(sensor_tag[i])
+
+    lines, labels = fig.axes[-1].get_legend_handles_labels()
+    fig.legend(lines, labels, loc = 'center right')
+    plt.xticks(rotation=20)
+    plt.xlabel('Day - Time')
+    plt.show()
+
+    pass
+
+# plot_entry = -1
+# results = np.ones(test_label[plot_entry].shape)
+# plot_results(label_target, test_label_time[plot_entry], test_label[plot_entry], results)
 
 ############# Model architecture #############
 
 # Linear model
-def f_linear_model():
+def f_linear_model(label_target):
     linear_model = tf.keras.Sequential([
-                    tf.keras.layers.Dense(units=64),
-                    tf.keras.layers.Dense(units=1)])
+                    tf.keras.layers.Dense(units=1),
+                    tf.keras.layers.Dense(units = len(label_target))])
     return linear_model
+
+linear_model = f_linear_model(label_target)
 
 # MLP model
 # mlp_model = tf.keras.Sequential([
@@ -160,20 +200,37 @@ def f_linear_model():
 ############# Deployment #############
 
 # Training
-def compile_and_fit(model, train_data, train_label):
+def compile_and_fit(model, train_data, train_label, test_data, test_label, max_epochs):
     
-    model.summary()
+    train_data  = train_data.reshape((train_data.shape[0], 1, train_data.shape[1]))
+    test_data   = test_data.reshape((test_data.shape[0], 1, test_data.shape[1]))
+    
+    train_dataset   = tf.data.Dataset.from_tensor_slices((train_data, train_label))
+    test_dataset    = tf.data.Dataset.from_tensor_slices((test_data, test_label))
 
-    model.compile(loss=tf.losses.MeanSquaredError(),
-                optimizer=tf.optimizers.Adam(),
-                metrics=[tf.metrics.MeanAbsoluteError()])
+    # Add callbacks
 
-    history = model.fit(train_data, 
-                        train_label, 
-                        batch_size = 128, 
-                        epochs = 2,
-                        verbose = 2)
+    # TODO: MULTIPLE OUTPUTS
+    # TODO: PREDICT ONE HOUR
 
+    # Model compile
+    model.compile(loss      = tf.losses.MeanSquaredError(),
+                  optimizer = tf.optimizers.Adam(),
+                  metrics   = [tf.metrics.MeanAbsoluteError()])
+
+    # Model fit
+    history = model.fit(train_data,
+                        train_label,
+                        epochs  = max_epochs,
+                        verbose = 2,
+                        shuffle =False)
+
+    model.evaluate(test_data, test_label)
+
+    trainPredict = model.predict(test_data[0][:][:])
     return history
+
+max_epochs = 5
+history_linear = compile_and_fit(linear_model, train_data, train_label, test_data, test_label, max_epochs)
 
 # Prediction
