@@ -37,7 +37,7 @@ df_grouped = pd.pivot_table(df, index = 'DateTime', columns = 'Label', values = 
 df_grouped.index = pd.to_datetime(df_grouped.index)
 
 start_date = pd.to_datetime('2021-03-23 00:00:00')
-end_date = pd.to_datetime('2021-03-25 23:59:59')
+end_date = pd.to_datetime('2021-03-26 23:59:59')
 
 df_grouped = df_grouped.loc[start_date:end_date]
 print(df_grouped.head)
@@ -142,7 +142,7 @@ test_data, test_label, test_data_time, test_label_time = f_window_gen(norm_test_
 
 ### Plotting - Normalized values
 def plot_results(label_target, label_time, label, results):
-    n_label = np.int(len(target_label))
+    n_label = np.int(len(label_target))
     n_time = np.int(label_time.shape[0])
 
     m_label = label.reshape(n_time, n_label)
@@ -172,13 +172,16 @@ def plot_results(label_target, label_time, label, results):
 ############# Model architecture #############
 
 # Linear model
-def f_linear_model(label_target):
+def f_linear_model(label_target, label_width):
     linear_model = tf.keras.Sequential([
-                    tf.keras.layers.Dense(units=1),
-                    tf.keras.layers.Dense(units = len(label_target))])
+                    tf.keras.layers.Dense(units=1000),
+                    tf.keras.layers.Dense(units=700),
+                    tf.keras.layers.Dense(units=500),
+                    tf.keras.layers.Dense(units=400),
+                    tf.keras.layers.Dense(units = len(label_target) * label_width)])
     return linear_model
 
-linear_model = f_linear_model(label_target)
+linear_model = f_linear_model(label_target, label_width)
 
 # MLP model
 # mlp_model = tf.keras.Sequential([
@@ -221,16 +224,20 @@ def compile_and_fit(model, train_data, train_label, test_data, test_label, max_e
     # Model fit
     history = model.fit(train_data,
                         train_label,
+                        batch_size = 65,
                         epochs  = max_epochs,
                         verbose = 2,
                         shuffle =False)
 
     model.evaluate(test_data, test_label)
 
-    trainPredict = model.predict(test_data[0][:][:])
-    return history
+    test_prediction = model.predict(test_data[0][:][:])
+    return history, test_prediction
 
-max_epochs = 5
-history_linear = compile_and_fit(linear_model, train_data, train_label, test_data, test_label, max_epochs)
+max_epochs = 50
+history_linear, test_prediction = compile_and_fit(linear_model, train_data, train_label, test_data, test_label, max_epochs)
 
-# Prediction
+results = test_prediction.reshape(label_width, len(label_target))
+
+plot_entry = 0
+plot_results(label_target, test_label_time[plot_entry], test_label[plot_entry], results)
