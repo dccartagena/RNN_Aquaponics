@@ -3,8 +3,6 @@ import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from scipy import stats as st
-from scipy import signal as sg
 import seaborn as sns
 import tensorflow as tf
 import os
@@ -37,7 +35,7 @@ df_grouped = pd.pivot_table(df, index = 'DateTime', columns = 'Label', values = 
 df_grouped.index = pd.to_datetime(df_grouped.index)
 
 start_date = pd.to_datetime('2021-03-23 00:00:00')
-end_date = pd.to_datetime('2021-03-26 23:59:59')
+end_date = pd.to_datetime('2021-03-29 23:59:59')
 
 df_grouped = df_grouped.loc[start_date:end_date]
 print(df_grouped.head)
@@ -61,7 +59,7 @@ corr_mat = np.abs(df_grouped.corr(method='pearson'))
 # sns.heatmap(corr_mat)
 # plt.show()
 
-corr_thl = 0.25
+corr_thl = 0.40
 corr_label = (corr_mat[4] > corr_thl) | (corr_mat[5] > corr_thl) | (corr_mat[8] > corr_thl) | (corr_mat[9] > corr_thl) | (corr_mat[18] > corr_thl)
 df_grouped = df_grouped.loc[:, corr_label]
 print(df_grouped.first)
@@ -135,7 +133,6 @@ def f_window_gen(df, label_target, input_width, label_width, offset_width):
 
     return np.array(data), np.array(label), data_time, label_time
 
-
 train_data, train_label, train_data_time, train_label_time = f_window_gen(norm_train_df, label_target, input_width, label_width, offset_width)
 val_data, val_label, val_data_time, val_label_time = f_window_gen(norm_val_df, label_target, input_width, label_width, offset_width)
 test_data, test_label, test_data_time, test_label_time = f_window_gen(norm_test_df, label_target, input_width, label_width, offset_width)
@@ -169,24 +166,58 @@ def plot_results(label_target, label_time, label, results):
 # results = np.ones(test_label[plot_entry].shape)
 # plot_results(label_target, test_label_time[plot_entry], test_label[plot_entry], results)
 
+### Plotting - History
+def plot_history(history):
+
+    acc = history.history['mean_absolute_error']
+    val_acc = history.history['val_mean_absolute_error']
+
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+
+    # Get number of epochs
+    epochs = range(len(acc))
+
+    fig, ax = plt.subplots(2, sharex = 'all')
+
+    # Plot training and validation accuracy per epoch
+    ax[0].plot(epochs, acc, label = 'Training')
+    ax[0].plot(epochs, val_acc, label = 'Validation')
+    ax[0].title.set_text('Training and validation MAE')
+
+    # Plot training and validation loss per epoch
+    ax[1].plot(epochs, loss, label = 'Training')
+    ax[1].plot(epochs, val_loss, label = 'Validation')
+    ax[1].title.set_text('Training and validation loss')
+
+    lines, labels = fig.axes[-1].get_legend_handles_labels()
+    fig.legend(lines, labels, loc = 'center right')
+    plt.xticks(rotation=20)
+    plt.xlabel('epochs')
+    plt.show()
+
+
 ############# Model architecture #############
 
 # Linear model
 def f_linear_model(label_target, label_width):
     linear_model = tf.keras.Sequential([
-                    tf.keras.layers.Dense(units=1000),
-                    tf.keras.layers.Dense(units=700),
-                    tf.keras.layers.Dense(units=500),
-                    tf.keras.layers.Dense(units=400),
+                    tf.keras.layers.Dense(units = 40),
+                    tf.keras.layers.Dense(units = 15),
                     tf.keras.layers.Dense(units = len(label_target) * label_width)])
     return linear_model
 
 linear_model = f_linear_model(label_target, label_width)
 
 # MLP model
-# mlp_model = tf.keras.Sequential([
-#                 tf.keras.layers.Dense(units=64, activation='relu'),
-#                 tf.keras.layers.Dense(units=1)])
+def f_mlp_model(label_target, label_width):
+    mlp_model = tf.keras.Sequential([
+                tf.keras.layers.Dense(units = 100, activation = tf.keras.layers.LeakyReLU(alpha=0.1)),
+                tf.keras.layers.Dense(units = 50, activation = 'linear'),
+                tf.keras.layers.Dense(units = len(label_target) * label_width)])
+    return mlp_model
+    
+mlp_model = f_mlp_model(label_target, label_width)
 
 # RNN - Vanilla
 # rnn_model = 2
@@ -201,20 +232,24 @@ linear_model = f_linear_model(label_target, label_width)
 
 
 ############# Deployment #############
+# Callbacks
+def scheduler(epoch, lr):
+    if epoch < 10:
+        return lr
+    else:
+        return lr * np.exp(-0.1)
 
 # Training
-def compile_and_fit(model, train_data, train_label, test_data, test_label, max_epochs):
+def compile_and_fit(model, train_data, train_label, val_data, val_label, test_data, test_label, max_epochs, batch_size, test_entry):
     
     train_data  = train_data.reshape((train_data.shape[0], 1, train_data.shape[1]))
     test_data   = test_data.reshape((test_data.shape[0], 1, test_data.shape[1]))
-    
-    train_dataset   = tf.data.Dataset.from_tensor_slices((train_data, train_label))
-    test_dataset    = tf.data.Dataset.from_tensor_slices((test_data, test_label))
 
     # Add callbacks
-
-    # TODO: MULTIPLE OUTPUTS
-    # TODO: PREDICT ONE HOUR
+    early_stop = tf.keras.callbacks.EarlyStopping(monitor = "val_loss", 
+                                                  patience = 3)
+    lr_scheduler = tf.keras.callbacks.LearningRateScheduler(scheduler, verbose = 1)
+    callbacks = [early_stop, lr_scheduler]
 
     # Model compile
     model.compile(loss      = tf.losses.MeanSquaredError(),
@@ -224,20 +259,33 @@ def compile_and_fit(model, train_data, train_label, test_data, test_label, max_e
     # Model fit
     history = model.fit(train_data,
                         train_label,
-                        batch_size = 65,
+                        batch_size = batch_size,
                         epochs  = max_epochs,
                         verbose = 2,
-                        shuffle =False)
+                        shuffle =False, 
+                        validation_data = (val_data, val_label),
+                        callbacks = callbacks)
 
     model.evaluate(test_data, test_label)
 
-    test_prediction = model.predict(test_data[0][:][:])
+    test_prediction = model.predict(test_data[test_entry][:][:])
     return history, test_prediction
 
-max_epochs = 50
-history_linear, test_prediction = compile_and_fit(linear_model, train_data, train_label, test_data, test_label, max_epochs)
+max_epochs = 15
+batch_size = 36
+test_entry = np.random.randint(0, 100)
 
-results = test_prediction.reshape(label_width, len(label_target))
+# linear_history, linear_prediction = compile_and_fit(linear_model, train_data, train_label, val_data, val_label, test_data, test_label, 
+#                                                     max_epochs, batch_size, test_entry)
 
-plot_entry = 0
-plot_results(label_target, test_label_time[plot_entry], test_label[plot_entry], results)
+# results = linear_prediction.reshape(label_width, len(label_target))
+
+history_mlp, prediction_mlp = compile_and_fit(mlp_model, train_data, train_label, val_data, val_label, test_data, test_label, 
+                                                    max_epochs, batch_size, test_entry)
+
+results = prediction_mlp.reshape(label_width, len(label_target))
+
+plot_results(label_target, test_label_time[test_entry], test_label[test_entry], results)
+
+plot_history(history_mlp)
+
