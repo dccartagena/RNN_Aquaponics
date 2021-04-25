@@ -40,7 +40,7 @@ df_grouped = df_grouped.loc[start_date:end_date]
 # print(df_grouped.head)
 
 ### Data visualization
-sample_sensor = 93
+sample_sensor = 2
 
 # df_grouped[sample_sensor].plot(x = 'DateTime', y = 'Value', kind = 'line')
 # plt.xticks(rotation=20)
