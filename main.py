@@ -23,22 +23,21 @@ np.random.seed(10)
 def read_file(textfile):
     df = pd.read_csv(textfile, sep="\t")
     df.drop(df.columns[0], axis=1, inplace=True)
-    print('Overview of the dataset')
-    print(df)
+    print('Dataset ready')
     return df
 
-textfile = "dataset_aquaponics_03232021_03312021.txt"
+textfile = "dataset_aquaponics_03232021_04232021.txt"
 df = read_file(textfile)
 
 # Organize data in columns
 df_grouped = pd.pivot_table(df, index = 'DateTime', columns = 'Label', values = 'Value')
 df_grouped.index = pd.to_datetime(df_grouped.index)
 
-start_date = pd.to_datetime('2021-03-23 00:00:00')
-end_date = pd.to_datetime('2021-03-29 23:59:59')
+start_date = pd.to_datetime('2021-04-01 00:00:00')
+end_date = pd.to_datetime('2021-04-10 23:59:59')
 
 df_grouped = df_grouped.loc[start_date:end_date]
-print(df_grouped.head)
+# print(df_grouped.head)
 
 ### Data visualization
 sample_sensor = 93
@@ -49,56 +48,12 @@ sample_sensor = 93
 
 ### Data pre-processing
 
-# Delete constant or corrupted-data columns
-drop_signal = [12, 13, 14, 15, 22, 23, 24, 25, 32, 33, 35, 42, 43, 44, 46, 48, 49, 56, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 93, 97, 98, 99, 100, 101, 104, 105, 106, 111, 112, 113, 114]
-df_grouped  = df_grouped.drop(columns = drop_signal)
-print(df_grouped.first)
-
-# Correlation analysis
-corr_mat = np.abs(df_grouped.corr(method='pearson'))
-# sns.heatmap(corr_mat)
-# plt.show()
-
-corr_thl = 0.40
-corr_label = (corr_mat[4] > corr_thl) | (corr_mat[5] > corr_thl) | (corr_mat[8] > corr_thl) | (corr_mat[9] > corr_thl) | (corr_mat[18] > corr_thl)
-df_grouped = df_grouped.loc[:, corr_label]
-print(df_grouped.first)
-
-# Describe dataset
-print(df_grouped.describe().transpose())
-
-# Split dataset
-total_data = len(df_grouped)
-
-train_perc, val_perc, test_perc = 0.7, 0.2, 0.1
-
-train_df    = df_grouped[0:int(total_data*train_perc)]
-val_df      = df_grouped[int(total_data*train_perc):int(total_data*(train_perc + val_perc))]
-test_df     = df_grouped[int(total_data*(train_perc + val_perc)):total_data]
-
-# Mean-STD normalization
-norm_mean   = train_df.mean()
-norm_std    = train_df.std()
-
-norm_train_df   = (train_df - norm_mean) / norm_std
-norm_val_df     = (val_df - norm_mean) / norm_std
-norm_test_df    = (test_df - norm_mean) / norm_std
-
-# Show tails with box plot
-melt_train_df = norm_train_df.melt(var_name = 'Label', value_name = 'Normalized value')
-# plt.figure()
-# ax = sns.violinplot(x = 'Label', y = 'Normalized value', data = melt_train_df)
-# plt.show()
-
-### Window generation
-n_hours_in  = 2
-n_hours_out = 1
-
-input_width     = 65 * n_hours_in # 65 entries ~ 1 hour - There is a variable sampling frecuency
-label_width     = 65 * n_hours_out # Predict 1 hour
-offset_width    = 1 # 1 as default
-
-label_target = {4: 'pH sump B', 5: 'pH sump A', 8: '% oxygen B', 9: '% oxygen A', 18: 'C02'}
+# Target data
+label_target = {4: 'pH sump B', 
+                5: 'pH sump A', 
+                8: '% oxygen B', 
+                9: '% oxygen A', 
+                18: 'C02'}
 # Our target variables are:
 # 4     = pH sump B
 # 5     = pH sump A
@@ -112,30 +67,95 @@ label_target = {4: 'pH sump B', 5: 'pH sump A', 8: '% oxygen B', 9: '% oxygen A'
 # 104*  = Ammonia A
 # * sensors are not online yet
 
-# Create input and label dataframe
+# Delete constant or corrupted-data columns
+drop_signal = [12, 13, 14, 15, 22, 23, 24, 25, 32, 33, 35, 42, 43, 44, 46, 48, 49, 56, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 93, 97, 98, 99, 100, 101, 103, 104, 105, 106, 111, 112, 113, 114]
+df_grouped  = df_grouped.drop(columns = drop_signal)
+# print(df_grouped.first)
+
+# Correlation analysis
+corr_mat = np.abs(df_grouped.corr(method='pearson'))
+# sns.heatmap(corr_mat)
+# plt.show()
+
+corr_thl = 0.50
+corr_label = np.zeros(df_grouped.shape[1])
+
+for i in label_target:
+    corr_label = corr_label | (corr_mat[i] > corr_thl)
+
+df_grouped = df_grouped.loc[:, corr_label]
+# print(df_grouped.first)
+
+# Describe dataset
+# print(df_grouped.describe().transpose())
+
+# Split dataset
+total_data = len(df_grouped)
+
+train_perc, val_perc, test_perc = 0.7, 0.2, 0.1
+
+train_df    = df_grouped[0:int(total_data*train_perc)]
+val_df      = df_grouped[int(total_data*train_perc):int(total_data*(train_perc + val_perc))]
+test_df     = df_grouped[int(total_data*(train_perc + val_perc)):total_data]
+
+# # Mean-STD normalization
+norm_mean   = train_df.mean()
+norm_std    = train_df.std()
+
+norm_train_df   = (train_df - norm_mean) / norm_std
+norm_val_df     = (val_df - norm_mean) / norm_std
+norm_test_df    = (test_df - norm_mean) / norm_std
+
+# # Min-max normalization
+# norm_train_df   = (train_df - train_df.min()) / (train_df.max() - train_df.min())
+# norm_val_df     = (val_df - train_df.min()) / (train_df.max() - train_df.min())
+# norm_test_df    = (test_df - train_df.min()) / (train_df.max() - train_df.min())
+
+# # TODO: Min-Max percentile normalization
+
+
+# # Show tails with box plot
+# melt_train_df = norm_train_df.melt(var_name = 'Label', value_name = 'Normalized value')
+# # plt.figure()
+# # ax = sns.violinplot(x = 'Label', y = 'Normalized value', data = melt_train_df)
+# # plt.show()
+
+### Window generation
+# # Create input and target dataframe
+n_hour_data = 65 # 65 entries ~ 1 hour - There is a variable sampling frecuency
+n_hours_in  = 1
+n_hours_out = 1
+
+input_width     = n_hour_data * n_hours_in 
+label_width     = n_hour_data * n_hours_out 
+offset_width    = 1 # 1 as default
+
 def f_window_gen(df, label_target, input_width, label_width, offset_width):
-    
+
     time_range = df.index
     data = []
-    label = []
+    target = []
 
     data_time = []
-    label_time = []
+    target_time = []
 
     for i in range(len(time_range) - (input_width + offset_width + label_width)):
-        m_data = df.loc[time_range[i]:time_range[input_width + i]].to_numpy()
-        data.append(m_data.flatten('C'))
+        range_data = df.loc[time_range[i]:time_range[input_width + i]].values
+        data.append(range_data)
         data_time.append(time_range[i:input_width + i])
 
-        m_label = df[label_target].loc[time_range[input_width + offset_width + i: input_width + offset_width + label_width + i]].to_numpy()
-        label.append(m_label.flatten('C'))
-        label_time.append(time_range[input_width + offset_width + i: input_width + offset_width + label_width + i])
+        range_target = df[label_target].loc[time_range[input_width + offset_width + i: input_width + offset_width + label_width + i]].values
+        target.append(range_target.flatten('C'))
+        target_time.append(time_range[input_width + offset_width + i: input_width + offset_width + label_width + i])
 
-    return np.array(data), np.array(label), data_time, label_time
+    data = np.array(data)
+    target = np.array(target)
 
-train_data, train_label, train_data_time, train_label_time = f_window_gen(norm_train_df, label_target, input_width, label_width, offset_width)
-val_data, val_label, val_data_time, val_label_time = f_window_gen(norm_val_df, label_target, input_width, label_width, offset_width)
-test_data, test_label, test_data_time, test_label_time = f_window_gen(norm_test_df, label_target, input_width, label_width, offset_width)
+    return data, target, data_time, target_time
+
+train_data, train_target, train_data_time, train_target_time = f_window_gen(norm_train_df, label_target, input_width, label_width, offset_width)
+val_data, val_target, val_data_time, val_target_time = f_window_gen(norm_val_df, label_target, input_width, label_width, offset_width)
+test_data, test_target, test_data_time, test_target_time = f_window_gen(norm_test_df, label_target, input_width, label_width, offset_width)
 
 ### Plotting - Normalized values
 def plot_results(label_target, label_time, label, results):
@@ -161,10 +181,6 @@ def plot_results(label_target, label_time, label, results):
     plt.show()
 
     pass
-
-# plot_entry = -1
-# results = np.ones(test_label[plot_entry].shape)
-# plot_results(label_target, test_label_time[plot_entry], test_label[plot_entry], results)
 
 ### Plotting - History
 def plot_history(history):
@@ -197,11 +213,13 @@ def plot_history(history):
     plt.show()
 
 
-############# Model architecture #############
+# ############# Model architecture #############
 
-# Linear model
+# TODO: Check input in flatten layer is adequate
+# # Linear model
 def f_linear_model(label_target, label_width):
     linear_model = tf.keras.Sequential([
+                    tf.keras.layers.Flatten(),
                     tf.keras.layers.Dense(units = 40),
                     tf.keras.layers.Dense(units = 15),
                     tf.keras.layers.Dense(units = len(label_target) * label_width)])
@@ -209,45 +227,52 @@ def f_linear_model(label_target, label_width):
 
 linear_model = f_linear_model(label_target, label_width)
 
-# MLP model
+# # MLP model
 def f_mlp_model(label_target, label_width):
     mlp_model = tf.keras.Sequential([
-                tf.keras.layers.Dense(units = 100, activation = tf.keras.layers.LeakyReLU(alpha=0.1)),
-                tf.keras.layers.Dense(units = 50, activation = 'linear'),
+                tf.keras.layers.Flatten(),
+                tf.keras.layers.Dense(units = 65*10, activation = 'relu'),
+                tf.keras.layers.Dense(units = 65*5, activation = 'relu'),
+                tf.keras.layers.Dense(units = 65, activation = 'relu'),
                 tf.keras.layers.Dense(units = len(label_target) * label_width)])
     return mlp_model
     
 mlp_model = f_mlp_model(label_target, label_width)
 
 # RNN - Vanilla
-# rnn_model = 2
+def f_rnn_model(input_shape, output_shape):
+    rnn_model = tf.keras.Sequential([
+                tf.keras.layers.SimpleRNN(units = 65 * 5, input_shape = input_shape),
+                tf.keras.layers.Dense(output_shape)])
+    return rnn_model
+
+input_shape = train_data[0].shape
+output_shape = train_target.shape[1]
+rnn_model = f_rnn_model(input_shape, output_shape)
 
 
-# RNN - LSTM
-# lstm_model = 2
+# # RNN - LSTM
+# # lstm_model = 2
 
 
-# RNN - GRU
-# gru_model = 2
+# # RNN - GRU
+# # gru_model = 2
 
 
-############# Deployment #############
+# ############# Deployment #############
 # Callbacks
 def scheduler(epoch, lr):
-    if epoch < 10:
+    if epoch < 3:
         return lr
     else:
         return lr * np.exp(-0.1)
 
 # Training
-def compile_and_fit(model, train_data, train_label, val_data, val_label, test_data, test_label, max_epochs, batch_size, test_entry):
-    
-    train_data  = train_data.reshape((train_data.shape[0], 1, train_data.shape[1]))
-    test_data   = test_data.reshape((test_data.shape[0], 1, test_data.shape[1]))
+def compile_and_fit(model, train_data, train_target, val_data, val_target, test_data, test_target, max_epochs, batch_size, test_entry):
 
     # Add callbacks
     early_stop = tf.keras.callbacks.EarlyStopping(monitor = "val_loss", 
-                                                  patience = 3)
+                                                  patience = 4)
     lr_scheduler = tf.keras.callbacks.LearningRateScheduler(scheduler, verbose = 1)
     callbacks = [early_stop, lr_scheduler]
 
@@ -258,34 +283,52 @@ def compile_and_fit(model, train_data, train_label, val_data, val_label, test_da
 
     # Model fit
     history = model.fit(train_data,
-                        train_label,
+                        train_target,
                         batch_size = batch_size,
                         epochs  = max_epochs,
                         verbose = 2,
-                        shuffle =False, 
-                        validation_data = (val_data, val_label),
+                        shuffle = False, 
+                        validation_data = (val_data, val_target),
                         callbacks = callbacks)
 
-    model.evaluate(test_data, test_label)
+    model.evaluate(test_data, test_target)
 
-    test_prediction = model.predict(test_data[test_entry][:][:])
+    test_data = np.reshape(test_data[test_entry], (1, test_data[0].shape[0], test_data[0].shape[1]))
+    test_prediction = model.predict(test_data)
+
     return history, test_prediction
 
-max_epochs = 15
+max_epochs = 3
 batch_size = 36
 test_entry = np.random.randint(0, 100)
 
-# linear_history, linear_prediction = compile_and_fit(linear_model, train_data, train_label, val_data, val_label, test_data, test_label, 
-#                                                     max_epochs, batch_size, test_entry)
-
-# results = linear_prediction.reshape(label_width, len(label_target))
-
-history_mlp, prediction_mlp = compile_and_fit(mlp_model, train_data, train_label, val_data, val_label, test_data, test_label, 
+### Linear model evaluation
+linear_history, linear_prediction = compile_and_fit(linear_model, train_data, train_target, val_data, val_target, test_data, test_target, 
                                                     max_epochs, batch_size, test_entry)
 
-results = prediction_mlp.reshape(label_width, len(label_target))
+linear_results = linear_prediction.reshape(label_width, len(label_target))
 
-plot_results(label_target, test_label_time[test_entry], test_label[test_entry], results)
+plot_results(label_target, test_target_time[test_entry], test_target[test_entry], linear_results)
 
-plot_history(history_mlp)
+plot_history(linear_history)
+
+### MLP model evaluation
+mlp_history, mlp_prediction = compile_and_fit(mlp_model, train_data, train_target, val_data, val_target, test_data, test_target, 
+                                                    max_epochs, batch_size, test_entry)
+
+mlp_results = mlp_prediction.reshape(label_width, len(label_target))
+
+plot_results(label_target, test_target_time[test_entry], test_target[test_entry], mlp_results)
+
+plot_history(mlp_history)
+
+### Simple RNN model evaluation=
+rnn_history, rnn_prediction = compile_and_fit(rnn_model, train_data, train_target, val_data, val_target, test_data, test_target, 
+                                                    max_epochs, batch_size, test_entry)
+
+rnn_results = rnn_prediction.reshape(label_width, len(label_target))
+
+plot_results(label_target, test_target_time[test_entry], test_target[test_entry], rnn_results)
+
+plot_history(rnn_history)
 
