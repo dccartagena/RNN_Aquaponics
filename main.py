@@ -242,7 +242,8 @@ mlp_model = f_mlp_model(label_target, label_width)
 # RNN - Vanilla
 def f_rnn_model(input_shape, output_shape):
     rnn_model = tf.keras.Sequential([
-                tf.keras.layers.SimpleRNN(units = 65 * 5, input_shape = input_shape),
+                tf.keras.layers.SimpleRNN(units = 65 * 5, input_shape = input_shape, return_state=True),
+                tf.keras.layers.SimpleRNN(units = 65 * 2),
                 tf.keras.layers.Dense(output_shape)])
     return rnn_model
 
@@ -303,26 +304,26 @@ batch_size = 36
 test_entry = np.random.randint(0, 100)
 
 ### Linear model evaluation
-linear_history, linear_prediction = compile_and_fit(linear_model, train_data, train_target, val_data, val_target, test_data, test_target, 
-                                                    max_epochs, batch_size, test_entry)
+# linear_history, linear_prediction = compile_and_fit(linear_model, train_data, train_target, val_data, val_target, test_data, test_target, 
+#                                                     max_epochs, batch_size, test_entry)
 
-linear_results = linear_prediction.reshape(label_width, len(label_target))
+# linear_results = linear_prediction.reshape(label_width, len(label_target))
 
-plot_results(label_target, test_target_time[test_entry], test_target[test_entry], linear_results)
+# plot_results(label_target, test_target_time[test_entry], test_target[test_entry], linear_results)
 
-plot_history(linear_history)
+# plot_history(linear_history)
 
 ### MLP model evaluation
-mlp_history, mlp_prediction = compile_and_fit(mlp_model, train_data, train_target, val_data, val_target, test_data, test_target, 
-                                                    max_epochs, batch_size, test_entry)
+# mlp_history, mlp_prediction = compile_and_fit(mlp_model, train_data, train_target, val_data, val_target, test_data, test_target, 
+#                                                     max_epochs, batch_size, test_entry)
 
-mlp_results = mlp_prediction.reshape(label_width, len(label_target))
+# mlp_results = mlp_prediction.reshape(label_width, len(label_target))
 
-plot_results(label_target, test_target_time[test_entry], test_target[test_entry], mlp_results)
+# plot_results(label_target, test_target_time[test_entry], test_target[test_entry], mlp_results)
 
-plot_history(mlp_history)
+# plot_history(mlp_history)
 
-### Simple RNN model evaluation=
+### Simple RNN model evaluation
 rnn_history, rnn_prediction = compile_and_fit(rnn_model, train_data, train_target, val_data, val_target, test_data, test_target, 
                                                     max_epochs, batch_size, test_entry)
 
